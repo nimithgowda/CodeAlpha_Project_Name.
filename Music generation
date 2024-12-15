@@ -1,0 +1,129 @@
+import numpy as np
+from music21 import converter, note, chord
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.optimizers import Adam
+
+# Step 1: Extract Notes from MIDI File
+def extract_notes_from_midi(file_path):
+    # Load the MIDI file
+    midi = converter.parse(file_path)
+    
+    notes = []
+    for element in midi.flat.notes:
+        if isinstance(element, note.Note):  # If it's a single note
+            notes.append(str(element))
+        elif isinstance(element, chord.Chord):  # If it's a chord
+            notes.append('.'.join(str(n) for n in element.normalOrder))
+    
+    return notes
+
+# Step 2: Prepare the Data for the RNN Model
+def prepare_data(notes, sequence_length=100):
+    # Get all unique notes/chords
+    all_notes = sorted(set(notes))
+
+    # Create a dictionary to map notes to integers
+    note_to_int = {note: number for number, note in enumerate(all_notes)}
+
+    # Prepare the sequences of notes (input and output)
+    network_input = []
+    network_output = []
+
+    for i in range(len(notes) - sequence_length):
+        sequence_in = notes[i:i + sequence_length]
+        sequence_out = notes[i + sequence_length]
+        network_input.append([note_to_int[note] for note in sequence_in])
+        network_output.append(note_to_int[sequence_out])
+
+    # Reshape for the RNN model
+    X = np.reshape(network_input, (len(network_input), sequence_length, 1))
+    X = X / float(len(all_notes))  # Normalize input
+
+    # One-hot encode the output
+    y = np.zeros((len(network_output), len(all_notes)))
+    for i, seq_out in enumerate(network_output):
+        y[i][seq_out] = 1
+    
+    return X, y, note_to_int, all_notes
+
+# Step 3: Build the RNN Model
+def build_model(X, y):
+    model = Sequential()
+    model.add(LSTM(512, input_shape=(X.shape[1], X.shape[2]), return_sequences=True))
+    model.add(Dropout(0.3))
+    model.add(LSTM(512, return_sequences=True))
+    model.add(Dropout(0.3))
+    model.add(LSTM(512))
+    model.add(Dropout(0.3))
+    model.add(Dense(256, activation='relu'))
+    model.add(Dense(len(y[0]), activation='softmax'))
+
+    model.compile(loss='categorical_crossentropy', optimizer=Adam(lr=0.001))
+
+    # Train the model
+    model.fit(X, y, epochs=200, batch_size=64)
+    
+    return model
+
+# Step 4: Generate Music
+def generate_music(model, network_input, note_to_int, int_to_note, sequence_length=100):
+    prediction_input = network_input
+    prediction_output = []
+    
+    for _ in range(500):  # Generate 500 notes
+        prediction_input = np.reshape(prediction_input, (1, len(prediction_input), 1))
+        prediction_input = prediction_input / float(len(note_to_int))
+        predicted_probabilities = model.predict(prediction_input, verbose=0)
+        
+        index = np.argmax(predicted_probabilities)
+        prediction_output.append(int_to_note[index])
+        
+        prediction_input.append(index)
+        prediction_input = prediction_input[1:]
+
+    return prediction_output
+
+# Step 5: Convert Generated Notes to MIDI
+def generate_midi(generated_notes, output_file="generated_song.mid"):
+    stream = []
+    for note_str in generated_notes:
+        if '.' in note_str or note_str.isdigit():  # It's a chord
+            chord_notes = note_str.split('.')
+            chord_notes = [note.Note(int(n)) for n in chord_notes]
+            stream.append(chord.Chord(chord_notes))
+        else:  # It's a single note
+            stream.append(note.Note(note_str))
+    
+    # Save the generated music to a MIDI file
+    midi_stream = stream.Stream(stream)
+    midi_stream.write('midi', fp=output_file)
+
+# Main function to run the whole process
+def main():
+    # Replace with the actual MIDI file path
+    file_path = 'your_midi_file.mid'  # Example MIDI file path
+    
+    # Step 1: Extract notes from the MIDI file
+    notes = extract_notes_from_midi(file_path)
+    print(f"First 10 notes: {notes[:10]}")
+    
+    # Step 2: Prepare the data
+    X, y, note_to_int, all_notes = prepare_data(notes)
+    
+    # Create the reverse dictionary to map integers back to notes
+    int_to_note = {number: note for note, number in note_to_int.items()}
+    
+    # Step 3: Build and train the RNN model
+    model = build_model(X, y)
+    
+    # Step 4: Generate music
+    generated_notes = generate_music(model, X[0], note_to_int, int_to_note)
+    
+    # Step 5: Convert generated notes to a MIDI file
+    generate_midi(generated_notes)
+    print("Generated music saved to 'generated_song.mid'")
+
+# Run the main function
+if __name__ == '__main__':
+    main()
