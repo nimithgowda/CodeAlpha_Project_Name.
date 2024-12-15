@@ -1,0 +1,40 @@
+import spacy
+from collections import Counter
+
+# Load the English model
+nlp = spacy.load("en_core_web_sm")
+
+# FAQ Data
+faq_data = {
+    "What is your product?": "Our product is a smart home assistant that helps automate tasks in your home.",
+    "How do I use the product?": "You can use the product by connecting it to your Wi-Fi network and controlling it via the mobile app.",
+    "What is the warranty period?": "The warranty period for the product is 1 year from the date of purchase.",
+    "How do I contact support?": "You can contact support by emailing support@ourproduct.com.",
+    "Where can I buy the product?": "You can buy the product on our website or on major online platforms like Amazon."
+}
+
+# Function for matching the user input with FAQ questions using semantic similarity
+def chatbot_response(user_input):
+    # Process user input
+    user_doc = nlp(user_input.lower())
+    
+    # Calculate the similarity between user input and each FAQ question
+    similarities = {}
+    for question, answer in faq_data.items():
+        question_doc = nlp(question.lower())
+        similarity = user_doc.similarity(question_doc)  # Get semantic similarity
+        similarities[question] = similarity
+    
+    # Get the most similar question
+    best_match = max(similarities, key=similarities.get)
+    
+    # Return the corresponding answer
+    if similarities[best_match] > 0.5:  # Threshold to ensure a good match
+        return faq_data[best_match]
+    else:
+        return "Sorry, I couldn't find an answer to that. Can you please rephrase?"
+
+# Test the chatbot with some user input
+user_input = input("Ask a question: ")
+response = chatbot_response(user_input)
+print("Chatbot:", response)
